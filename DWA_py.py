@@ -45,7 +45,19 @@ def update(robot, u, dt):
         theta_0 = robot.irany
         
         #1.eset --> ha kanyarodik w!=0
-        robot.x = (v/w) * (math.sin(theta_0) - math.sin(theta_0 + w(robot.))
+        if(abs(w)!=0):
+            robot.x += (v/w) * (math.sin(theta_0 + w*dt) - math.sin(theta_0 ))
+            robot.y += - (v/w) * (math.cos(theta_0 + w*dt) - math.cos(theta_0))
+        else:
+            #2.eset --> ha w=0 --> egyenesen halad
+            robot.x += v*math.cos(theta_0)*dt
+            robot.y += v*math.sin(theta_0)*dt
+        
+        #otientáció frissítés
+        robot.irany += w*dt
+        
+        robot.v = v
+        robot.w = w
         
         
         # Visszaadjuk a teljes állapotvektort, ha szükséges
