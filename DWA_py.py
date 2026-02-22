@@ -6,11 +6,29 @@ import numpy as np      #gyorsabb számolás miatt --> ez C-ben írodott
 
 class robotconfig:
     def __init__(robot):     #konstruktor
+        """ #kör alakú robot esetén
         robot.v_max = 2 # [m/s]
         robot.v_min = -1 # [m/s]
         robot.w_max = 2  # [rad/s]
         robot.w_min = -1 # [rad/s]
         robot.a_max = 4 # [m/s^2] gyorsulás
+        """
+        """#Differenciális meghajtású robot esetén"""
+        # feltételezem hogy a negativ és poziti sebességek megegyeznek v_max = v_min és w_max=w_min --> ezeket kiszámolom a kerekek adataibol és a robot konfigurációjából/ felépítéséből
+        robot.r_kerek = 0.033   #[m]
+        robot.b = 0.08 #[m]
+        robot.w_kerek_max = 15 #rad/s
+        robot.a_max = 4 # [m/s^2] gyorsulás
+        
+        # v kiszámitása a paraméterek alapján
+        robot.v_max = robot.w_kerek_max * robot.r_kerek
+        robot.v_min = -robot.v_max 
+        
+        # w kiszámítása a paraméterek alapján
+        robot.w_max = (robot.w_kerek_max* robot.r_kerek)/ robot.b
+        robot.w_min = -robot.w_max
+
+        
         
         # Felbontások a mintavételezéshez
         robot.resolution = 0.1 #A lineáris sebesség  mintavételezési finomsága m/s. --> Szerepe: A DWA nem egy végtelen tartományban keres, hanem „lépked”. Ez a szám adja meg, mekkora közökkel tesztelje a lehetséges sebességeket.Példa: Ha a min sebesség 0, a max 1, és a felbontás 0.1, akkor a kód megnézi a 0.0, 0.1, 0.2 ... 1.0 értékeket.Hatása: Minél kisebb (finomabb), annál pontosabb lesz a mozgás, de annál több számítást kell végeznie a processzornak (lassabb lesz a kód).
@@ -19,15 +37,16 @@ class robotconfig:
         #DWA időparaméterek
         robot.dt = 0.1 # [s] --> időléspés (felbontás)
         robot.predict_time = 3 # [s] --> mennyi időre lásson előre
-        
     
+        #robot-alakja--> legyen kör az egyszerűség kedvéért
+        #robot.rob_radius = 0.1 # [m]
+        robot.rob_radius = robot.b + 0.02 #[m]
+        
+        
         #G(v,w)= Alfa*heading(v,w)+Beta*dist(v,w)+Gamma*vel(v,w)
         robot.Alfa = 2  #célra tarás súlya
         robot.Beta = 3 # Akadály kerülés súlya
         robot.Gamma = 1 #Sebesség súlya
-    
-        #robot-alakja--> legyen kör az egyszerűség kedvéért
-        robot.rob_radius = 0.1 # [m]
         
 class robotstate:
     def __init__(robot, x=0, y=0, v=0, w=0, irany = 0):  #default konstruktor
@@ -121,6 +140,9 @@ def plot_all_trajectories(state, config, all_pairs):
               config.rob_radius * math.sin(state.irany), head_width=0.1)
     
     plt.show()
+
+
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 # Futtatás
 conf = robotconfig()
