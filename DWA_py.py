@@ -78,7 +78,6 @@ def update(robot, u, dt):
         robot.v = v
         robot.w = w
         
-        
         # Visszaadjuk a teljes állapotvektort, ha szükséges
         return np.array([robot.x, robot.y, robot.irany, robot.v, robot.w])
 
@@ -86,7 +85,6 @@ def pairstochoose (robotconfig, robotstate):
     """        
     Összes választható v,w pár kiszámolása
     """
-    # 1. Dinamikus ablak meghatározása (sebesség és gyorsulás korlátok)
     v_min_actual = max(robotconfig.v_min, robotstate.v - robotconfig.a_max * robotconfig.dt)
     v_max_actual = min(robotconfig.v_max, robotstate.v + robotconfig.a_max * robotconfig.dt)
         
@@ -143,6 +141,21 @@ def plot_all_trajectories(state, config, all_pairs):
 
 
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+#v,w választott párból a kerekeknek a vezérlésének kiszámítása
+def wheelcontrollcalcuate(robotconfig, v, w):
+    """
+    Kiszámítja a kerekek lineáris és szögsebességét.
+    v: választott sebesség [m/s]
+    w: választott szögsebesség [rad/s]
+    """
+    
+    w1_kerek = (v-w*robotconfig.b)/robotconfig.r_kerek
+    w2_kerek = (v+w*robotconfig.b)/robotconfig.r_kerek
+    
+    return (w1_kerek, w2_kerek)
+    
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 # Futtatás
 conf = robotconfig()
