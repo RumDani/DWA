@@ -70,8 +70,6 @@ def AdmissableVelocity(robotconfig, w_L, w_R, state, obstacle_list):
    
 ############################################################
 
-
-
 class robotconfig:
     def __init__(robot):     #konstruktor
         """#Differenciális meghajtású robot esetén"""
