@@ -9,6 +9,68 @@ def get_robot_kinematics(w_L, w_R, config):
     w = ((w_R - w_L) / (2 * config.b)) * config.r_kerek
     return v, w
 
+class Obstacle:
+    def __init__(self, x, y, radius=0.1):
+        self.x = x
+        self.y = y
+        self.radius = radius
+        
+obstacle_list = [
+    Obstacle(1.5, 0.5, radius=0.15),  
+    Obstacle(2.0, -0.2, radius=0.08),
+    Obstacle(0.8, 1.2, radius=0.2),
+    Obstacle(2.5, 1.0, radius=0.1)
+]
+
+
+def get_dist_on_trajectory(state, config, w_L, w_R, obstacle_list):
+    """
+    Kiszámítja a megtett utat az ív mentén az első ütközésig.
+    Ha nincs ütközés a predict_time alatt, egy nagy értéket ad vissza.
+    """
+    # Létrehozunk egy szimulációs robotot
+    temp_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
+    
+    accumulated_dist = 0.0
+    v_actual, _ = get_robot_kinematics(w_L, w_R, config)
+    step_dist = abs(v_actual) * config.dt # Egy időlépés alatt megtett út
+    
+    # Végigszimuláljuk az utat
+    for _ in np.arange(0, config.predict_time, config.dt):
+        update(temp_robot, config, w_L, w_R, config.dt)
+        accumulated_dist += step_dist
+        
+        # Ellenőrizzük az összes akadályt ebben a pontban
+        for obs in obstacle_list:
+            dist_centers = math.hypot(temp_robot.x - obs.x, temp_robot.y - obs.y)
+            # Ha a robot széle és az akadály széle összeér
+            if dist_centers <= (config.rob_radius + obs.radius):
+                return accumulated_dist # Megállunk, megvan az ütközési távolság
+                
+    return 10.0 # Ha nincs ütközés a jósolt távon belül, egy fix nagy értéket adunk vissza
+
+
+
+#############xx FÉKEZÉSI FELTÉTELEK ###############
+def AdmissableVelocity(robotconfig, w_L, w_R, state, obstacle_list):
+    """
+    Ellenőrzi, hogy a robot meg tud-e állni az adott íven az ütközés előtt.
+    """
+    # 1. Kiszámítjuk a távolságot az ív mentén az ütközésig
+    dist_to_obs = get_dist_on_trajectory(state, robotconfig, w_L, w_R, obstacle_list)
+    
+    # 2. Megkapjuk a lineáris sebességet (v)
+    v, _ = get_robot_kinematics(w_L, w_R, robotconfig)
+    
+    # Biztonsági feltétel: v <= sqrt(2 * a_max * dist)
+    # Ez a fizikai határhelyzet (v^2 = 2as)
+    if abs(v) <= math.sqrt(2 * robotconfig.a_max * dist_to_obs):
+        return True
+    return False
+   
+############################################################
+
+
 
 class robotconfig:
     def __init__(robot):     #konstruktor
@@ -67,9 +129,6 @@ class robotstate:
         robot.irany = irany
         robot.w_L = w_L
         robot.w_R = w_R
-       
-        robot.v = 0
-        robot.w = 0
        
 def update(robot, config, w_L, w_R, dt):
    
@@ -141,16 +200,6 @@ def pairstochoose (robotconfig, robotstate):
             all_pairs.append([v, w, w_L, w_R])
     return all_pairs
 
-
-#############xx FÉKEZÉSI FELTÉTELEK ###############
-def AdmissableVelocity (robotconfig, w_L, w_R, dist_to_obs):
-    v, w = get_robot_kinematics(w_L, w_R, robotconfig)
-    if v < math.sqrt(2*dist_to_obs*robotconfig.a_max):
-        return True
-    else:
-        return False
-   
-################################################
     """szimulációs rész --> kirajzolás"""
 ################################################
 
@@ -171,11 +220,27 @@ def get_braking_limit_distance(config, v):
     
     return stopping_distance + safety_margin
 
-def plot_all_trajectories(state, config, all_pairs):
+def plot_all_trajectories(state, config, all_pairs, obstacles):
     plt.figure(figsize=(10, 10))
     plt.grid(True)
-    plt.axis("equal")
-   
+    
+    #Kirajzolás miatti rész ez
+    # 1. Akadályok kirajzolása és határaik begyűjtése
+    all_x = [obs.x for obs in obstacles] + [state.x]
+    all_y = [obs.y for obs in obstacles] + [state.y]
+    
+    for obs in obstacles:
+        circle = plt.Circle((obs.x, obs.y), obs.radius, color="red", alpha=0.6)
+        plt.gca().add_artist(circle)
+    
+    #Kirajzolás miatti rész ez
+    # Kézi tengelybeállítás az akadályok és a robot alapján
+    # Hagyunk egy kis margót (0.5m) a széleken
+    plt.xlim(min(all_x) - 0.5, max(all_x) + 0.5)
+    plt.ylim(min(all_y) - 0.5, max(all_y) + 0.5)
+    
+    plt.gca().set_aspect('equal', adjustable='box')
+        
     # 1. Összes lehetséges pálya kirajzolása
     """
     for v, w in all_pairs:
@@ -273,4 +338,4 @@ conf = robotconfig()
 # Példa: a robot már 0.5 m/s-mal megy és kicsit kanyarodik
 curr_state = robotstate(x=0, y=0, v=0.5, w=0.1, irany=0)
 pairs = pairstochoose(conf, curr_state)
-plot_all_trajectories(curr_state, conf, pairs)
+plot_all_trajectories(curr_state, conf, pairs, obstacle_list)
