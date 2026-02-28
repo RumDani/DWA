@@ -24,7 +24,7 @@ class robotconfig:
         robot.r_kerek = 0.033   #[m]
         robot.b = 0.08 #[m]
         robot.w_kerek_max = 15 #rad/s
-        robot.a_max = 4 # [m/s^2] gyorsulás
+        robot.a_max = 2 # [m/s^2] gyorsulás
        
         # v kiszámitása a paraméterek alapján
         #robot.v_max = robot.w_kerek_max * robot.r_kerek
@@ -154,6 +154,23 @@ def AdmissableVelocity (robotconfig, w_L, w_R, dist_to_obs):
     """szimulációs rész --> kirajzolás"""
 ################################################
 
+def get_braking_limit_distance(config, v):
+    """
+    Kiszámítja azt a minimális távolságot (határhelyzetet), 
+    amin belül ha akadály van, a robot már nem tudna megállni.
+    
+    v: a robot aktuális lineáris sebessége [m/s]
+    """
+    # A képlet: v^2 = 2 * a * s  --> s = v^2 / (2 * a)
+    # Az abszolút értéket használjuk, hogy hátramenetben is pozitív távolságot kapjunk.
+    stopping_distance = (v**2) / (2 * config.a_max)
+    
+    # Érdemes hozzáadni egy kis biztonsági puffert (pl. a robot sugarát), 
+    # hogy ne centire az akadály előtt álljon meg a robot közepe.
+    safety_margin = config.rob_radius 
+    
+    return stopping_distance + safety_margin
+
 def plot_all_trajectories(state, config, all_pairs):
     plt.figure(figsize=(10, 10))
     plt.grid(True)
@@ -180,21 +197,41 @@ def plot_all_trajectories(state, config, all_pairs):
         plt.plot(path_x, path_y, "-g", alpha=0.2)
     """
    
-    for v, w, w_L, w_R in all_pairs:
-        # Szín meghatározása: Előre (v >= 0) -> zöld, Hátra (v < 0) -> kék
-        path_color = "-g" if v >= 0 else "-b"
+    for p_v, p_w, w_L, w_R in all_pairs:
+        # Szín: Előre -> zöld, Hátra -> kék
+        path_color = "-g" if p_v >= 0 else "-b"
+        
+        # 1. JÓSOLT SZAKASZ SZIMULÁCIÓJA
         ghost_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
-
         path_x, path_y = [ghost_robot.x], [ghost_robot.y]
 
         for _ in np.arange(0, config.predict_time, config.dt):
             update(ghost_robot, config, w_L, w_R, config.dt)
-
             path_x.append(ghost_robot.x)
             path_y.append(ghost_robot.y)
            
-           
         plt.plot(path_x, path_y, path_color, alpha=0.2)
+        
+        # 2. FÉKEZÉSI SZAKASZ SZIMULÁCIÓJA (ÍVES PIROS PÁLYA)
+        # Megállási idő kiszámítása: t = v / a
+        t_stop = abs(p_v) / config.a_max if abs(p_v) > 0 else 0
+        
+        # A fékezést a jósolt szakasz végpontjáról (ghost_robot) indítjuk
+        brake_robot = robotstate(x=ghost_robot.x, y=ghost_robot.y, irany=ghost_robot.irany, w_L=w_L, w_R=w_R)
+        brake_x, brake_y = [brake_robot.x], [brake_robot.y]
+        
+        # Lassulás szimulációja: a keréksebességek fokozatosan csökkennek
+        stop_steps = np.arange(0, t_stop, config.dt)
+        for i, _ in enumerate(stop_steps):
+            # Sebességcsökkentési faktor (1.0 -> 0.0)
+            factor = max(0, 1.0 - (i * config.dt / t_stop)) if t_stop > 0 else 0
+            # Frissítjük a szellemrobotot a csökkentett keréksebességekkel
+            update(brake_robot, config, w_L * factor, w_R * factor, config.dt)
+            brake_x.append(brake_robot.x)
+            brake_y.append(brake_robot.y)
+            
+        # Piros ív kirajzolása (ez már követi a kanyart)
+        plt.plot(brake_x, brake_y, "-r", alpha=0.3)
    
    
     # 2. A robot és az irány kirajzolása
