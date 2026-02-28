@@ -4,6 +4,12 @@ import math                         # matematikai műveletekre pl.:pi
 import numpy as np      #gyorsabb számolás miatt --> ez C-ben írodott
 
 
+def get_robot_kinematics(w_L, w_R, config):
+    v = ((w_L + w_R) / 2) * config.r_kerek
+    w = ((w_R - w_L) / (2 * config.b)) * config.r_kerek
+    return v, w
+
+
 class robotconfig:
     def __init__(robot):     #konstruktor
         """ #kör alakú robot esetén
@@ -31,7 +37,7 @@ class robotconfig:
         robot.w_kerek_min = -robot.w_kerek_max
        
         # Felbontások a mintavételezéshez (most a kerék szögsebességére vonatkozóan)
-        robot.w_kerek_resolution = 1 # [rad/s] A kerék szögsebesség mintavételezési finomsága.
+        robot.w_kerek_resolution = 1.5 # [rad/s] A kerék szögsebesség mintavételezési finomsága.
        
        
         # Felbontások a mintavételezéshez
@@ -40,7 +46,7 @@ class robotconfig:
        
         #DWA időparaméterek
         robot.dt = 0.1 # [s] --> időléspés (felbontás)
-        robot.predict_time = 3 # [s] --> mennyi időre lásson előre
+        robot.predict_time = 2 # [s] --> mennyi időre lásson előre
    
         #robot-alakja--> legyen kör az egyszerűség kedvéért
         #robot.rob_radius = 0.1 # [m]
@@ -67,9 +73,7 @@ class robotstate:
        
 def update(robot, config, w_L, w_R, dt):
    
-        #kezdeti paraméterek
-        v = ((w_L + w_R) / 2) * config.r_kerek
-        w = ((w_R - w_L) / (2 * config.b)) * config.r_kerek
+        v, w = get_robot_kinematics(w_L, w_R, config)
         theta_0 = robot.irany
        
         #1.eset --> ha kanyarodik w!=0
@@ -132,12 +136,19 @@ def pairstochoose (robotconfig, robotstate):
     all_pairs = []      #a kerekekbol szamolva
     for w_L in w_L_samples:
         for w_R in w_R_samples:
-            # Kiszámoljuk a robot v és w értékeit a keréksebességekből a képletek alapján
-            v = ((w_R + w_L) / 2) * robotconfig.r_kerek
-            w = ((w_R - w_L) / (2 * robotconfig.b)) * robotconfig.r_kerek
+            v, w = get_robot_kinematics(w_L, w_R, robotconfig)
 
             all_pairs.append([v, w, w_L, w_R])
     return all_pairs
+
+
+#############xx FÉKEZÉSI FELTÉTELEK ###############
+def AdmissableVelocity (robotconfig, w_L, w_R, dist_to_obs):
+    v, w = get_robot_kinematics(w_L, w_R, robotconfig)
+    if v < math.sqrt(2*dist_to_obs*robotconfig.a_max):
+        return True
+    else:
+        return False
    
 ################################################
     """szimulációs rész --> kirajzolás"""
@@ -170,6 +181,8 @@ def plot_all_trajectories(state, config, all_pairs):
     """
    
     for v, w, w_L, w_R in all_pairs:
+        # Szín meghatározása: Előre (v >= 0) -> zöld, Hátra (v < 0) -> kék
+        path_color = "-g" if v >= 0 else "-b"
         ghost_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
 
         path_x, path_y = [ghost_robot.x], [ghost_robot.y]
@@ -181,14 +194,23 @@ def plot_all_trajectories(state, config, all_pairs):
             path_y.append(ghost_robot.y)
            
            
-        plt.plot(path_x, path_y, "-g", alpha=0.2)
+        plt.plot(path_x, path_y, path_color, alpha=0.2)
    
    
     # 2. A robot és az irány kirajzolása
     robot_circle = plt.Circle((state.x, state.y), config.rob_radius, color="b", fill=False)
     plt.gca().add_artist(robot_circle)
-    plt.arrow(state.x, state.y, config.rob_radius * math.cos(state.irany),
-              config.rob_radius * math.sin(state.irany), head_width=0.2)
+    plt.arrow(state.x, state.y, 
+              config.rob_radius * math.cos(state.irany),
+              config.rob_radius * math.sin(state.irany), 
+              head_width=0.05,
+              head_length=0.07,
+              fc='b', ec='b')
+    
+    # Tengelyfeliratok és mértékegységek hozzáadása
+    plt.xlabel("X pozíció [m]")
+    plt.ylabel("Y pozíció [m]")
+    plt.title("Robot pályák jóslása (zöld és kék)")
    
     plt.show()
 
