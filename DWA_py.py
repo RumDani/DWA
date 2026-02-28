@@ -74,13 +74,6 @@ def AdmissableVelocity(robotconfig, w_L, w_R, state, obstacle_list):
 
 class robotconfig:
     def __init__(robot):     #konstruktor
-        """ #kör alakú robot esetén
-        robot.v_max = 2 # [m/s]
-        robot.v_min = -1 # [m/s]
-        robot.w_max = 2  # [rad/s]
-        robot.w_min = -1 # [rad/s]
-        robot.a_max = 4 # [m/s^2] gyorsulás
-        """
         """#Differenciális meghajtású robot esetén"""
         # feltételezem hogy a negativ és poziti sebességek megegyeznek v_max = v_min és w_max=w_min --> ezeket kiszámolom a kerekek adataibol és a robot konfigurációjából/ felépítéséből
         robot.r_kerek = 0.033   #[m]
@@ -88,23 +81,10 @@ class robotconfig:
         robot.w_kerek_max = 15 #rad/s
         robot.a_max = 2 # [m/s^2] gyorsulás
        
-        # v kiszámitása a paraméterek alapján
-        #robot.v_max = robot.w_kerek_max * robot.r_kerek
-        #robot.v_min = -robot.v_max
-       
-        # w kiszámítása a paraméterek alapján
-        #robot.w_max = (robot.w_kerek_max* robot.r_kerek)/ robot.b
-        #robot.w_min = -robot.w_max
-       
         robot.w_kerek_min = -robot.w_kerek_max
        
         # Felbontások a mintavételezéshez (most a kerék szögsebességére vonatkozóan)
         robot.w_kerek_resolution = 1.5 # [rad/s] A kerék szögsebesség mintavételezési finomsága.
-       
-       
-        # Felbontások a mintavételezéshez
-        #robot.resolution = 0.1 #A lineáris sebesség  mintavételezési finomsága m/s. --> Szerepe: A DWA nem egy végtelen tartományban keres, hanem „lépked”. Ez a szám adja meg, mekkora közökkel tesztelje a lehetséges sebességeket.Példa: Ha a min sebesség 0, a max 1, és a felbontás 0.1, akkor a kód megnézi a 0.0, 0.1, 0.2 ... 1.0 értékeket.Hatása: Minél kisebb (finomabb), annál pontosabb lesz a mozgás, de annál több számítást kell végeznie a processzornak (lassabb lesz a kód).
-        #robot.turn_resolution = 5 * math.pi / 180.0  # [rad/s] -- kanyarodási felbontás --> hasonló szerepe mint a fenti sebesség felbontásnak
        
         #DWA időparaméterek
         robot.dt = 0.1 # [s] --> időléspés (felbontás)
@@ -160,15 +140,6 @@ def pairstochoose (robotconfig, robotstate):
     """        
     Összes választható v,w pár kiszámolása
     """
-    #v_min_actual = max(robotconfig.v_min, robotstate.v - robotconfig.a_max * robotconfig.dt)
-    #v_max_actual = min(robotconfig.v_max, robotstate.v + robotconfig.a_max * robotconfig.dt)
-       
-    #w_min_actual = max(robotconfig.w_min, robotstate.w - robotconfig.a_max * robotconfig.dt)
-    #w_max_actual = min(robotconfig.w_max, robotstate.w + robotconfig.a_max * robotconfig.dt)
-   
-    # Aktuális kerék szögsebesség határok a gyorsulás figyelembevételével
-    # Feltételezzük, hogy a_max a lineáris gyorsulásra vonatkozik,
-    # és ebből számoljuk vissza a kerék szöggyorsulását.
     w_dot_max = robotconfig.a_max / robotconfig.r_kerek
    
     w_L_min_actual = max(robotconfig.w_kerek_min, robotstate.w_L - w_dot_max * robotconfig.dt)
@@ -180,18 +151,6 @@ def pairstochoose (robotconfig, robotstate):
     w_L_samples = np.arange(w_L_min_actual, w_L_max_actual + robotconfig.w_kerek_resolution, robotconfig.w_kerek_resolution)
     w_R_samples = np.arange(w_R_min_actual, w_R_max_actual + robotconfig.w_kerek_resolution, robotconfig.w_kerek_resolution)
 
-    # 2. Listák létrehozása a felbontások alapján (np.arange-dzsel)
-    # v_resolution: m/s lépésköz, turn_resolution: rad/s lépésköz
-    #v_samples = np.arange(v_min_actual, v_max_actual, robotconfig.resolution)
-    #w_samples = np.arange(w_min_actual, w_max_actual, robotconfig.turn_resolution)
-
-    # 3. Összes párosítás előállítása
-    #all_pairs = []
-    #for v in v_samples:
-    #        for w in w_samples:
-    #            all_pairs.append([v, w])
-    #return all_pairs
-   
     all_pairs = []      #a kerekekbol szamolva
     for w_L in w_L_samples:
         for w_R in w_R_samples:
@@ -199,17 +158,9 @@ def pairstochoose (robotconfig, robotstate):
 
             all_pairs.append([v, w, w_L, w_R])
     return all_pairs
-
-    """szimulációs rész --> kirajzolás"""
 ################################################
 
 def get_braking_limit_distance(config, v):
-    """
-    Kiszámítja azt a minimális távolságot (határhelyzetet), 
-    amin belül ha akadály van, a robot már nem tudna megállni.
-    
-    v: a robot aktuális lineáris sebessége [m/s]
-    """
     # A képlet: v^2 = 2 * a * s  --> s = v^2 / (2 * a)
     # Az abszolút értéket használjuk, hogy hátramenetben is pozitív távolságot kapjunk.
     stopping_distance = (v**2) / (2 * config.a_max)
@@ -241,27 +192,7 @@ def plot_all_trajectories(state, config, all_pairs, obstacles):
     
     plt.gca().set_aspect('equal', adjustable='box')
         
-    # 1. Összes lehetséges pálya kirajzolása
-    """
-    for v, w in all_pairs:
-        # Létrehozunk egy ideiglenes állapotot (szellemet),
-        # hogy ne az eredeti robotunkat mozgassuk el a rajzolás közben
-        ghost_robot = robotstate(x=state.x, y=state.y, v=state.v, w=state.w, irany=state.irany)
-       
-        path_x, path_y = [ghost_robot.x], [ghost_robot.y]
-       
-        # A jóslási időn belül lépegetünk
-        for _ in np.arange(0, config.predict_time, config.dt):              #egy listát (számsort) hoz létre. Ha a predict_time = 3.0 és a dt = 0.1, akkor ez a sor ilyen számokon megy végig: 0.0, 0.1, 0.2, 0.3 ... 2.9.
-            # Itt hívjuk meg a már létező UPDATE fgv-t
-            # u = [v, w] páros, dt = időlépés
-            update(ghost_robot, [v, w], config.dt)
-           
-            path_x.append(ghost_robot.x)
-            path_y.append(ghost_robot.y)
-           
-        plt.plot(path_x, path_y, "-g", alpha=0.2)
-    """
-   
+    # 1. Összes lehetséges pálya kirajzolása 
     for p_v, p_w, w_L, w_R in all_pairs:
         # Szín: Előre -> zöld, Hátra -> kék
         path_color = "-g" if p_v >= 0 else "-b"
@@ -315,23 +246,6 @@ def plot_all_trajectories(state, config, all_pairs, obstacles):
     plt.title("Robot pályák jóslása (zöld és kék)")
    
     plt.show()
-
-
-""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-"""
-#v,w választott párból a kerekeknek a vezérlésének kiszámítása
-def wheelcontrollcalcuate(robotconfig, v, w):
-    Kiszámítja a kerekek lineáris és szögsebességét.
-    v: választott sebesség [m/s]
-    w: választott szögsebesség [rad/s]
-   
-    w1_kerek = (v-w*robotconfig.b)/robotconfig.r_kerek
-    w2_kerek = (v+w*robotconfig.b)/robotconfig.r_kerek
-   
-    return (w1_kerek, w2_kerek)
-"""
-   
-""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 # Futtatás
 conf = robotconfig()
