@@ -25,6 +25,7 @@ class Obstacle:
 Akadályok példányosítása
 """
 obstacle_list = [
+    Obstacle(0.6, 0.25, radius=0.15),
     Obstacle(1.5, 0.5, radius=0.15),  
     Obstacle(2.0, -0.2, radius=0.08),
     Obstacle(0.8, 1.2, radius=0.2),
@@ -36,27 +37,21 @@ Kiszámítja a megtett utat az ív mentén az első ütközésig.
 Ha nincs ütközés a predict_time alatt, egy nagy értéket ad vissza.
 """
 def get_dist_on_trajectory(state, config, w_L, w_R, obstacle_list):
-
-    # Létrehozunk egy szimulációs robotot
     temp_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
-    
     accumulated_dist = 0.0
     v_actual, _ = get_robot_kinematics(w_L, w_R, config)
-    step_dist = abs(v_actual) * config.dt # Egy időlépés alatt megtett út
+    step_dist = abs(v_actual) * config.dt 
     
-    # Végigszimuláljuk az utat
     for _ in np.arange(0, config.predict_time, config.dt):
-        update(temp_robot, config, w_L, w_R, config.dt)
-        accumulated_dist += step_dist
-        
-        # Ellenőrizzük az összes akadályt ebben a pontban
         for obs in obstacle_list:
             dist_centers = math.hypot(temp_robot.x - obs.x, temp_robot.y - obs.y)
-            # Ha a robot széle és az akadály széle összeér
             if dist_centers <= (config.rob_radius + obs.radius):
-                return accumulated_dist
+                return accumulated_dist # Azonnali stop
+        
+        update(temp_robot, config, w_L, w_R, config.dt)
+        accumulated_dist += step_dist
                 
-    return 10.0 # Ha nincs ütközés
+    return 10.0
 
 
 #############xx FÉKEZÉSI FELTÉTELEK ###############
@@ -197,8 +192,17 @@ def plot_all_trajectories(state, config, all_pairs, obstacles):
         
     # 1. Összes lehetséges PÁLYA kirajzolása 
     for p_v, p_w, w_L, w_R in all_pairs:
-        # Szín: Előre -> zöld, Hátra -> kék
-        path_color = "-g" if p_v >= 0 else "-b"
+        
+        is_safe = AdmissableVelocity(config, w_L, w_R, state, obstacles)
+        dist_to_coll = get_dist_on_trajectory(state, config, w_L, w_R, obstacles)
+        if dist_to_coll < (abs(p_v) * config.predict_time) or not is_safe:
+            path_color = "-r" 
+        elif p_v > 0:
+            path_color = "-g"
+        else:
+            path_color = "-b"
+
+        
         
         # 1. JÓSOLT SZAKASZ SZIMULÁCIÓJA
         ghost_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
