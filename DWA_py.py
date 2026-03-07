@@ -293,3 +293,186 @@ conf = robotconfig()
 curr_state = robotstate(x=0, y=0, v=0.5, w=0.1, irany=0)
 pairs = pairstochoose(conf, curr_state)
 plot_all_trajectories(curr_state, conf, pairs, obstacle_list)
+
+
+"""
+import matplotlib.pyplot as plt
+import math
+import numpy as np
+
+# --- ALAPOSZTÁLYOK ---
+
+class robotconfig:
+    def __init__(self):
+        self.r_kerek = 0.033
+        self.b = 0.08
+        self.w_kerek_max = 15.0
+        self.w_kerek_min = -15.0
+        self.a_max = 2.0
+        self.w_kerek_resolution = 2.0  # Ritkább mintavétel a gyorsabb rajzolásért
+        self.dt = 0.1
+        self.predict_time = 2.5
+        self.rob_radius = 0.12
+        
+        # Súlyok a döntéshez
+        self.Alfa = 4.0   # Célra tartás (magasabb = agresszívabb célkövetés)
+        self.Beta = 2.0   # Akadálykerülés
+        self.Gamma = 1.0  # Sebesség
+        
+class robotstate:
+    def __init__(self, x=0, y=0, v=0, w=0, irany=0, w_L=0, w_R=0):
+        self.x, self.y, self.v, self.w = x, y, v, w
+        self.irany, self.w_L, self.w_R = irany, w_L, w_R
+
+class Obstacle:
+    def __init__(self, x, y, radius=0.15):
+        self.x, self.y, self.radius = x, y, radius
+
+# --- FÜGGVÉNYEK ---
+
+def get_robot_kinematics(w_L, w_R, config):
+    v = ((w_L + w_R) / 2) * config.r_kerek
+    w = ((w_R - w_L) / (2 * config.b)) * config.r_kerek
+    return v, w
+
+def update(robot, config, w_L, w_R, dt):
+    v, w = get_robot_kinematics(w_L, w_R, config)
+    theta_0 = robot.irany
+    if abs(w) > 1e-5:
+        robot.x += (v/w) * (math.sin(theta_0 + w*dt) - math.sin(theta_0))
+        robot.y += - (v/w) * (math.cos(theta_0 + w*dt) - math.cos(theta_0))
+    else:
+        robot.x += v * math.cos(theta_0) * dt
+        robot.y += v * math.sin(theta_0) * dt
+    robot.irany += w * dt
+    robot.v, robot.w, robot.w_L, robot.w_R = v, w, w_L, w_R
+    return robot
+
+def get_dist_on_trajectory(state, config, w_L, w_R, obstacle_list):
+    temp_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
+    accumulated_dist = 0.0
+    v_actual, _ = get_robot_kinematics(w_L, w_R, config)
+    for _ in np.arange(0, config.predict_time, config.dt):
+        for obs in obstacle_list:
+            if math.hypot(temp_robot.x - obs.x, temp_robot.y - obs.y) <= (config.rob_radius + obs.radius):
+                return accumulated_dist 
+        update(temp_robot, config, w_L, w_R, config.dt)
+        accumulated_dist += abs(v_actual) * config.dt
+    return 10.0
+
+def AdmissableVelocity(robotconfig, w_L, w_R, state, obstacle_list):
+    dist = get_dist_on_trajectory(state, robotconfig, w_L, w_R, obstacle_list)
+    v, _ = get_robot_kinematics(w_L, w_R, robotconfig)
+    return abs(v) <= math.sqrt(2 * robotconfig.a_max * dist)
+
+def pairstochoose(robotconfig, robotstate):
+    w_dot_max = robotconfig.a_max / robotconfig.r_kerek
+    w_L_min = max(robotconfig.w_kerek_min, robotstate.w_L - w_dot_max * robotconfig.dt)
+    w_L_max = min(robotconfig.w_kerek_max, robotstate.w_L + w_dot_max * robotconfig.dt)
+    w_R_min = max(robotconfig.w_kerek_min, robotstate.w_R - w_dot_max * robotconfig.dt)
+    w_R_max = min(robotconfig.w_kerek_max, robotstate.w_R + w_dot_max * robotconfig.dt)
+    
+    samples_L = np.arange(w_L_min, w_L_max + 0.1, robotconfig.w_kerek_resolution)
+    samples_R = np.arange(w_R_min, w_R_max + 0.1, robotconfig.w_kerek_resolution)
+    return [[get_robot_kinematics(l, r, robotconfig)[0], get_robot_kinematics(l, r, robotconfig)[1], l, r] 
+            for l in samples_L for r in samples_R]
+
+def optimisation(robotconfig, state, goal, obstacle_list):
+    all_pairs = pairstochoose(robotconfig, state)
+    best_score = -float('inf')
+    best_pair = None
+    safe_pairs = []
+
+    for v, w, w_L, w_R in all_pairs:
+        is_safe = AdmissableVelocity(robotconfig, w_L, w_R, state, obstacle_list)
+        if not is_safe: continue
+        
+        # Predikció végpontja a pontozáshoz
+        temp_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
+        for _ in np.arange(0, robotconfig.predict_time, robotconfig.dt):
+            update(temp_robot, robotconfig, w_L, w_R, robotconfig.dt)
+        
+        angle_to_goal = math.atan2(goal[1] - temp_robot.y, goal[0] - temp_robot.x)
+        score_heading = math.pi - abs(math.atan2(math.sin(angle_to_goal - temp_robot.irany), math.cos(angle_to_goal - temp_robot.irany)))
+        score_dist = get_dist_on_trajectory(state, robotconfig, w_L, w_R, obstacle_list)
+        score_vel = abs(v)
+
+        score = (robotconfig.Alfa * score_heading + robotconfig.Beta * score_dist + robotconfig.Gamma * score_vel)
+        
+        safe_pairs.append([v, w, w_L, w_R])
+        if score > best_score:
+            best_score = score
+            best_pair = [v, w, w_L, w_R]
+            
+    return best_pair, all_pairs
+
+# --- SZIMULÁCIÓ ---
+
+def run_dwa():
+    conf = robotconfig()
+    state = robotstate(x=0, y=0, irany=0, w_L=0, w_R=0)
+    goal = [4.0, 3.0]
+    obstacles = [Obstacle(1.2, 0.8), Obstacle(2.5, 2.0), Obstacle(1.0, 2.5), Obstacle(3.0, 1.0)]
+    
+    traj_x, traj_y = [state.x], [state.y]
+    
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(9, 7))
+
+    for step in range(200):
+        best, all_pairs = optimisation(conf, state, goal, obstacles)
+        
+        if best is None: break
+        
+        ax.clear()
+        # 1. Összes pálya rajzolása (piros = veszélyes, szürke = lassú/lehetséges)
+        for v, w, w_L, w_R in all_pairs:
+            is_safe = AdmissableVelocity(conf, w_L, w_R, state, obstacles)
+            ghost = robotstate(x=state.x, y=state.y, irany=state.irany)
+            px, py = [ghost.x], [ghost.y]
+            for _ in np.arange(0, conf.predict_time, conf.dt * 2): # Ritkább pontok a gyorsasághoz
+                update(ghost, conf, w_L, w_R, conf.dt * 2)
+                px.append(ghost.x)
+                py.append(ghost.y)
+            color = 'red' if not is_safe else 'gray'
+            ax.plot(px, py, color=color, alpha=0.15, lw=0.5)
+
+        # 2. VÁLASZTOTT pálya kiemelése (Zöld)
+        ghost = robotstate(x=state.x, y=state.y, irany=state.irany)
+        gx, gy = [ghost.x], [ghost.y]
+        for _ in np.arange(0, conf.predict_time, conf.dt):
+            update(ghost, conf, best[2], best[3], conf.dt)
+            gx.append(ghost.x)
+            gy.append(ghost.y)
+        ax.plot(gx, gy, color='lime', lw=3, label="Választott irány")
+
+        # 3. Robot, akadályok és cél
+        ax.plot(traj_x, traj_y, "-b", lw=1)
+        ax.plot(goal[0], goal[1], "gx", markersize=12, mew=3, label="Cél")
+        for obs in obstacles:
+            ax.add_patch(plt.Circle((obs.x, obs.y), obs.radius, color="red", alpha=0.5))
+        ax.add_patch(plt.Circle((state.x, state.y), conf.rob_radius, color="blue", fill=False, lw=2))
+
+        # Állapot frissítése
+        update(state, conf, best[2], best[3], conf.dt)
+        traj_x.append(state.x)
+        traj_y.append(state.y)
+
+        # Keret beállítása (dinamikus)
+        ax.set_xlim(min(0, state.x)-1, max(goal[0], state.x)+1)
+        ax.set_ylim(min(0, state.y)-1, max(goal[1], state.y)+1)
+        ax.set_aspect('equal')
+        ax.grid(True, linestyle='--', alpha=0.6)
+        plt.title(f"DWA Szimuláció - Lépés: {step} | v: {state.v:.2f} m/s")
+        plt.pause(0.001)
+
+        if math.hypot(state.x - goal[0], state.y - goal[1]) < 0.15:
+            print("Célba ért!")
+            break
+
+    plt.ioff()
+    plt.show()
+
+if __name__ == "__main__":
+    run_dwa()
+    """
