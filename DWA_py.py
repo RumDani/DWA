@@ -165,7 +165,41 @@ def pairstochoose (robotconfig, robotstate):
 
             all_pairs.append([v, w, w_L, w_R])
     return all_pairs
+
+########################Összes lehetséges válaztható pálya eltárolása ami biztonságos megállást biztosít, ez frissüljön minden egyes döntáshozásnál#######################x
+
+def safepairs (robotconfig, state, obstacle_list):
+    w_dot_max = robotconfig.a_max / robotconfig.r_kerek
+    
+    # Dinamikus ablak kiszámítása (mint a pairstochoose-ban)
+    w_L_min_actual = max(robotconfig.w_kerek_min, state.w_L - w_dot_max * robotconfig.dt)
+    w_L_max_actual = min(robotconfig.w_kerek_max, state.w_L + w_dot_max * robotconfig.dt)
+
+    w_R_min_actual = max(robotconfig.w_kerek_min, state.w_R - w_dot_max * robotconfig.dt)
+    w_R_max_actual = min(robotconfig.w_kerek_max, state.w_R + w_dot_max * robotconfig.dt)
+    
+    w_L_samples = np.arange(w_L_min_actual, w_L_max_actual + robotconfig.w_kerek_resolution, robotconfig.w_kerek_resolution)
+    w_R_samples = np.arange(w_R_min_actual, w_R_max_actual + robotconfig.w_kerek_resolution, robotconfig.w_kerek_resolution)
+
+    admissible_list = [] # Ebben csak a "jó" párok lesznek
+    
+    for w_L in w_L_samples:
+        for w_R in w_R_samples:
+            if AdmissableVelocity(robotconfig, w_L, w_R, state, obstacle_list):
+                v, w = get_robot_kinematics(w_L, w_R, robotconfig)
+                admissible_list.append([v, w, w_L, w_R])
+                
+    return admissible_list
+
 ################################################
+
+############# optimalizáció #####################
+def optimalisation (robotconfig, state, safe_pairs, goal, obstacle_list):
+    return best_pair
+
+
+################################################
+
 """
 szimulációs rész
 """
