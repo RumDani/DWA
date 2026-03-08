@@ -377,6 +377,7 @@ if __name__ == "__main__":
         # 4. Célba érés ellenőrzése
         if math.hypot(state.x - goal.x, state.y - goal.y) < goal.tolerance:
             print("Celba ert!")
+            plt.title("Celba ert!")
             break
 
     plt.ioff()
