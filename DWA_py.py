@@ -106,7 +106,7 @@ class robotconfig:
        
         #G(v,w)= Alfa*heading(v,w)+Beta*dist(v,w)+Gamma*vel(v,w)
         robot.Alfa = 2  #célra tarás súlya
-        robot.Beta = 1 # Akadály kerülés súlya
+        robot.Beta = 2 # Akadály kerülés súlya
         robot.Gamma = 5 #Sebesség súlya
        
 """
@@ -204,69 +204,65 @@ def safepairs (robotconfig, state, obstacle_list):
 
 ############# optimalizáció #####################
 def optimisation(robotconfig, state, goal, obstacle_list):
-    all_pairs = pairstochoose(robotconfig, state)
+    # 1. Biztonságos sebességpárok lekérése (Dinamikus ablak + Ütközésvizsgálat)
+    safe_list = safepairs(robotconfig, state, obstacle_list)
+    
+    # Ha nincs biztonságos út, vészfékezés
+    if not safe_list:
+        return [0.0, 0.0, 0.0, 0.0], []
+
     best_score = -float('inf')
     best_pair = None
     
-    # 1. Távolság kiszámítása a célhoz
     dist_to_goal = math.hypot(goal.x - state.x, goal.y - state.y)
+    v_max_robot = robotconfig.w_kerek_max * robotconfig.r_kerek
     
-    # 2. ADAPTÍV PREDIKCIÓ: Ha közel vagyunk, ne nézzünk 3 másodpercre előre!
-    # Ez megakadályozza a cél előtti forgást.
+    # 2. Adaptív predikció: közelebb rövidebb időre nézünk előre a precizitásért
     adaptive_predict_time = robotconfig.predict_time
     if dist_to_goal < 1.0:
         adaptive_predict_time = max(0.5, dist_to_goal * 2.0)
 
-    for v, w, w_L, w_R in all_pairs:
-        if not AdmissableVelocity(robotconfig, w_L, w_R, state, obstacle_list):
-            continue
-        
-        # Jóslás az adaptív idővel
+    alfa = robotconfig.Alfa    # Célra tartás (pl. 2.0)
+    beta = robotconfig.Beta    # Akadálykerülés (pl. 1.0)
+    gamma = robotconfig.Gamma          # Sebességszabályozás súlya (magasabb, hogy hallgasson a lassításra)
+
+    for v, w, w_L, w_R in safe_list:  
+        # Gyors szimuláció a jövőbeli állapot becsléséhez
         temp_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
         for _ in np.arange(0, adaptive_predict_time, robotconfig.dt):
             update(temp_robot, robotconfig, w_L, w_R, robotconfig.dt)
         
-        # --- PONTOZÁS ---
-        # A) Irány (Heading)
+        # --- PONTOZÁSI LOGIKA ---
+
+        # A: Heading score (Irányhiba normalizálva 0 és 1 közé)
         angle_to_goal = math.atan2(goal.y - temp_robot.y, goal.x - temp_robot.x)
         error_angle = math.atan2(math.sin(angle_to_goal - temp_robot.irany), 
                                  math.cos(angle_to_goal - temp_robot.irany))
-        score_heading = math.pi - abs(error_angle)
-
-        # B) Akadály (Distance)
+        score_heading = (math.pi - abs(error_angle)) / math.pi
+        
+        # B: Dist score (Akadályoktól való távolság)
         score_dist = get_dist_on_trajectory(state, robotconfig, w_L, w_R, obstacle_list)
         
-        # C) Sebesség (Velocity) - KÖZELÍTÉSNÉL FONTOSABB!
-        # Csak az előremenet kap pontot, a tolatás/helyben forgás büntetést kap
-        if v > 0:
-            score_vel = v
-        elif v == 0:
-            score_vel = -1.0 # Büntessük a helyben maradást/forgást
+        # C: Velocity score (Folytonos lassulási görbe)
+        if dist_to_goal > 0.8:
+            # Messze: egyszerűen jutalmazzuk a sebességet (0.0 - 1.0)
+            score_vel = v / v_max_robot
         else:
-            score_vel = -2.0 # Büntessük a tolatást
+            # Közel: v_target követése. v_target = távolság (pl. 0.5m-nél 0.5m/s az ideális)
+            # A pontszám 1.0 ha tökéletesen tartja a lassulást, és csökken ha eltér tőle.
+            v_target = max(0.0, dist_to_goal) 
+            score_vel = 1.0 - (abs(v_target - v) / v_max_robot)
 
-        # --- DINAMIKUS SÚLYOZÁS ---
-        # Ha közel vagyunk, az "odaérés" (sebesség) fontosabb, mint a tökéletes szög
-        alfa = robotconfig.Alfa
-        gamma = robotconfig.Gamma
-        if dist_to_goal < 0.5:
-            alfa = 0.5   # Kevésbé finomkodjon az iránnyal
-            gamma = 10.0 # Csak menjen oda végre!
-
+        # Végső pontszám kiszámítása
         score = (alfa * score_heading + 
-                 robotconfig.Beta * score_dist + 
+                 beta * score_dist + 
                  gamma * score_vel)
 
         if score > best_score:
             best_score = score
             best_pair = [v, w, w_L, w_R]
 
-    if best_pair is None:
-        best_pair = [0.0, 0.0, 0.0, 0.0]
-            
-    return best_pair, all_pairs
-
-################################################
+    return best_pair, safe_list
 
 """
 szimulációs rész
