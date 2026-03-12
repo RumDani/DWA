@@ -15,22 +15,56 @@ def get_robot_kinematics(w_L, w_R, config):
 Akadály osztály
 """
 class Obstacle:
-    def __init__(self, x, y, radius=0.1):
+    def __init__(self, x, y, radius=0.1, vx=0.0, vy=0.0):
         self.x = x
         self.y = y
         self.radius = radius
+        self.vx = vx  # sebesség x irányban
+        self.vy = vy  # sebesség y irányban
+
+    def move(self, dt):
+        self.x += self.vx * dt
+        self.y += self.vy * dt
 
 
 """        
 Akadályok példányosítása
 """
 obstacle_list = [
+    
+    # Fix akadályok, amik "folyosóra" kényszerítik a robotot
+    Obstacle(2.0, 3.5, radius=0.5),
+    Obstacle(4.5, 1.0, radius=0.5),
+    
+    # A BLOKKOLÓ: Ez az óriási akadály keresztbe úszik a robot előtt.
+    # A mérete (radius=1.2) biztosítja, hogy a robot aurájával (safety_margin) 
+    # együtt ne maradjon biztonságos ív.
+    Obstacle(3.0, -1.0, radius=1.2, vx=0.0, vy=0.45), 
+    
+    # Kisebb zavaró mozgó akadályok
+    Obstacle(5.0, 4.0, radius=0.2, vx=-0.3, vy=0.0),
+    Obstacle(1.0, 4.5, radius=0.15, vx=0.2, vy=-0.1)
+    ]
+    
+"""""
     Obstacle(0.6, 0.25, radius=0.15),
     Obstacle(1.5, 0.5, radius=0.15),  
     Obstacle(2.0, -0.2, radius=0.08),
     Obstacle(0.8, 1.2, radius=0.2),
-    Obstacle(2.5, 1.0, radius=0.1)
-]
+    Obstacle(2.5, 1.0, radius=0.1),
+    Obstacle(1.0, 2.5, radius=0.15),
+    Obstacle(3.0, 0.5, radius=0.3),
+    Obstacle(4.5, 1.5, radius=0.2),
+    Obstacle(2.0, 3.5, radius=0.25),
+    Obstacle(5.5, 3.5, radius=0.3),
+    Obstacle(4.0, 4.5, radius=0.2),
+    Obstacle(6.5, 2.0, radius=0.2),
+    Obstacle(2.5, 1.5, 0.25, vx=0.2, vy=0.1),  # Mozgó
+    Obstacle(4.5, 1.5, 0.2, vx=-0.15, vy=0.3), # Mozgó
+    Obstacle(3.0, 3.0, 0.25, vx=0.3, vy=-0.2), # Mozgó
+    Obstacle(3.5, 0.0, radius=0.6, vx=0.0, vy=0.4)
+    """
+
 
 """
 Cél kitűzése
@@ -54,7 +88,7 @@ def get_dist_on_trajectory(state, config, w_L, w_R, obstacle_list):
     for _ in np.arange(0, config.predict_time, config.dt):
         for obs in obstacle_list:
             dist_centers = math.hypot(temp_robot.x - obs.x, temp_robot.y - obs.y)
-            if dist_centers <= (config.rob_radius + obs.radius):
+            if dist_centers <= (config.rob_radius + obs.radius + config.safety_margin):
                 return accumulated_dist # Azonnali stop
         
         update(temp_robot, config, w_L, w_R, config.dt)
@@ -100,14 +134,15 @@ class robotconfig:
    
         #robot-alakja--> legyen kör az egyszerűség kedvéért
         robot.rob_radius = robot.b + 0.02 #[m]
-       
+        
+        robot.safety_margin = 0.15
        
         ########Optimalizáció###########
        
         #G(v,w)= Alfa*heading(v,w)+Beta*dist(v,w)+Gamma*vel(v,w)
-        robot.Alfa = 2  #célra tarás súlya
-        robot.Beta = 2 # Akadály kerülés súlya
-        robot.Gamma = 5 #Sebesség súlya
+        robot.Alfa = 3  #célra tarás súlya  2
+        robot.Beta = 3 # Akadály kerülés súlya  2
+        robot.Gamma = 4 #Sebesség súlya 5
        
 """
 Robot jelenlegi állapotának eltárolása
@@ -272,8 +307,8 @@ def plot_all_trajectories(state, config, all_pairs, best_pair, goal, obstacles):
     ax = plt.gca()
     
     # Beállítjuk a keretet, hogy ne mozogjon a robot után
-    ax.set_xlim(-0.5, 5.0) 
-    ax.set_ylim(-0.5, 4.0)
+    ax.set_xlim(-1.0, 8.5) 
+    ax.set_ylim(-1.0, 6.5)
     ax.set_aspect('equal', adjustable='box')
     ax.grid(True, linestyle='--', alpha=0.5)
 
@@ -349,31 +384,35 @@ def plot_all_trajectories(state, config, all_pairs, best_pair, goal, obstacles):
 if __name__ == "__main__":
     conf = robotconfig()
     state = robotstate(x=0, y=0, irany=0, w_L=0, w_R=0)
-    goal = Goal(x=4.0, y=3.0)
+    goal = Goal(x=7.0, y=5.0)
     
-    # Interaktív mód bekapcsolása a frissítéshez
     plt.ion()
-    plt.figure(figsize=(10, 10))
+    plt.figure(figsize=(10, 8))
 
-    # A kikommentelt hurok alapú szimuláció
-    for step in range(500):
-        # 1. Optimalizáció és az összes pár lekérése
+    for step in range(1000): # Hosszabb futás a várakozás miatt
+        # 1. Akadályok mozgatása
+        for obs in obstacle_list:
+            obs.move(conf.dt)
+
+        # 2. Optimalizáció
         best, all_pairs = optimisation(conf, state, goal, obstacle_list)
         
-        # 2. Megjelenítés
+        # 3. Megjelenítés
         plot_all_trajectories(state, conf, all_pairs, best, goal, obstacle_list)
         
-        # 3. Mozgatás
+        # 4. Mozgatási logika + Várakozás
         if best:
+            # Van út -> megyünk tovább
             update(state, conf, best[2], best[3], conf.dt)
         else:
-            print("Nincs biztonságos út, megállás!")
-            break
+            # NINCS ÚT -> Várakozás (kerekek megállítása)
+            # Frissítjük az állapotot v=0-val, hogy a szimuláció ne álljon le
+            update(state, conf, 0, 0, conf.dt)
+            print(f"Lépés {step}: Akadály blokkol, várakozás...")
             
-        # 4. Célba érés ellenőrzése
+        # 5. Célba érés
         if math.hypot(state.x - goal.x, state.y - goal.y) < goal.tolerance:
-            print("Celba ert!")
-            plt.title("Celba ert!")
+            print("Célba ért!")
             break
 
     plt.ioff()
