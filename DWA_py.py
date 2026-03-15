@@ -31,19 +31,21 @@ class Obstacle:
 Akadályok példányosítása
 """
 obstacle_list = [
-    
-    # Fix akadályok, amik "folyosóra" kényszerítik a robotot
-    Obstacle(2.0, 3.5, radius=0.5),
-    Obstacle(4.5, 1.0, radius=0.5),
-    
-    # A BLOKKOLÓ: Ez az óriási akadály keresztbe úszik a robot előtt.
-    # A mérete (radius=1.2) biztosítja, hogy a robot aurájával (safety_margin) 
-    # együtt ne maradjon biztonságos ív.
-    Obstacle(3.0, -1.0, radius=1.2, vx=0.0, vy=0.45), 
-    
-    # Kisebb zavaró mozgó akadályok
-    Obstacle(5.0, 4.0, radius=0.2, vx=-0.3, vy=0.0),
-    Obstacle(1.0, 4.5, radius=0.15, vx=0.2, vy=-0.1)
+    Obstacle(1.5, 1.0, radius=0.4),
+    Obstacle(2.5, 1.2, radius=0.4),
+    Obstacle(3.5, 0.8, radius=0.4),
+    Obstacle(2.0, 4.0, radius=0.4),
+    Obstacle(3.0, 4.2, radius=0.4),
+    Obstacle(4.0, 3.8, radius=0.4),
+    Obstacle(5.0, 2.5, radius=0.6),
+    Obstacle(2.5, -1.0, radius=0.3, vx=0.0, vy=0.3),
+    Obstacle(5.0, 6.0, radius=0.25, vx=0.0, vy=-0.5),
+    Obstacle(3.5, 2.8, radius=0.2, vx=0.6, vy=0.0),
+    Obstacle(6.0, 1.5, radius=0.2, vx=-0.4, vy=0.1),
+    Obstacle(1.2, 5.5, radius=0.15),
+    Obstacle(6.8, 4.5, radius=0.2),
+    Obstacle(7.2, 2.0, radius=0.15),
+
     ]
     
 """""
@@ -145,7 +147,7 @@ class robotconfig:
         robot.w_kerek_min = -robot.w_kerek_max
        
         # Felbontások a mintavételezéshez (most a kerék szögsebességére vonatkozóan)
-        robot.w_kerek_resolution = 0.7 # [rad/s] A kerék szögsebesség mintavételezési finomsága.
+        robot.w_kerek_resolution = 1 # [rad/s] A kerék szögsebesség mintavételezési finomsága.
        
         #DWA időparaméterek
         robot.dt = 0.1 # [s] --> időléspés (felbontás)
@@ -420,7 +422,12 @@ if __name__ == "__main__":
         best, all_pairs = optimisation(conf, state, goal, obstacle_list)
         
         # 3. Megjelenítés
-        plot_all_trajectories(state, conf, all_pairs, best, goal, obstacle_list)
+        # Fő ciklusban:
+        if step % 3 == 0:  # Minden 3. lépésben frissíts
+            plot_all_trajectories(state, conf, all_pairs, best, goal, obstacle_list)
+        else:
+            # Csak a mozgást számold, de ne rajzolj
+            pass
         
         # 4. Mozgatási logika + Várakozás
         if best:
