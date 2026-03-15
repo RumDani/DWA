@@ -83,16 +83,35 @@ def get_dist_on_trajectory(state, config, w_L, w_R, obstacle_list):
     temp_robot = robotstate(x=state.x, y=state.y, irany=state.irany, w_L=state.w_L, w_R=state.w_R)
     accumulated_dist = 0.0
     v_actual, _ = get_robot_kinematics(w_L, w_R, config)
-    step_dist = abs(v_actual) * config.dt 
     
-    for _ in np.arange(0, config.predict_time, config.dt):
+    # --- SZENZOR PARAMÉTEREK ---
+    max_sensor_dist = 3.0  # 3 méterig lát el a Lidar
+    fov_angle = math.radians(180) # 180 fokos látószög elöl
+    
+    for t in np.arange(0, config.predict_time, config.dt):
         for obs in obstacle_list:
-            dist_centers = math.hypot(temp_robot.x - obs.x, temp_robot.y - obs.y)
+            # 1. Szenzor szűrés: Csak azt látja, ami közel van
+            dist_now = math.hypot(state.x - obs.x, state.y - obs.y)
+            if dist_now > max_sensor_dist:
+                continue
+                
+            # 2. FOV szűrés: Csak azt látja, ami előtte van (+-90 fok)
+            angle_to_obs = math.atan2(obs.y - state.y, obs.x - state.x)
+            diff_angle = math.atan2(math.sin(angle_to_obs - state.irany), math.cos(angle_to_obs - state.irany))
+            if abs(diff_angle) > fov_angle / 2:
+                continue
+
+            # 3. DINAMIKUS PREDIKCIÓ: Hol lesz az akadály 't' idő múlva?
+            obs_future_x = obs.x + obs.vx * t
+            obs_future_y = obs.y + obs.vy * t
+            
+            dist_centers = math.hypot(temp_robot.x - obs_future_x, temp_robot.y - obs_future_y)
+            
             if dist_centers <= (config.rob_radius + obs.radius + config.safety_margin):
-                return accumulated_dist # Azonnali stop
+                return accumulated_dist 
         
         update(temp_robot, config, w_L, w_R, config.dt)
-        accumulated_dist += step_dist
+        accumulated_dist += abs(v_actual) * config.dt
                 
     return 10.0
 
@@ -160,31 +179,34 @@ class robotstate:
 """
 Robot állapotának frissítése
 """
-def update(robot, config, w_L, w_R, dt):
-   
-        v, w = get_robot_kinematics(w_L, w_R, config)
-        theta_0 = robot.irany
-       
-        #1.eset --> ha kanyarodik w!=0
-        if(abs(w)!=0):
-            robot.x += (v/w) * (math.sin(theta_0 + w*dt) - math.sin(theta_0 ))
-            robot.y += - (v/w) * (math.cos(theta_0 + w*dt) - math.cos(theta_0))
-        else:
-            #2.eset --> ha w=0 --> egyenesen halad
-            robot.x += v*math.cos(theta_0)*dt
-            robot.y += v*math.sin(theta_0)*dt
-       
-        #otientáció frissítés
-        robot.irany += w*dt
-       
-        robot.v = v
-        robot.w = w
-       
-        robot.w_L = w_L
-        robot.w_R = w_R
-       
-        # Visszaadjuk a teljes állapotvektort
-        return np.array([robot.x, robot.y, robot.irany, robot.v, robot.w, robot.w_L, robot.w_R])
+def update(robot, config, w_L_target, w_R_target, dt):
+    # Gyorsulás korlátozása
+    max_w_dot = config.a_max / config.r_kerek  # max kerék szögsebesség változás
+    
+    # Korlátozzuk, hogy mennyit változhat a keréksebesség ennyi idő alatt
+    w_L_new = robot.w_L + np.clip(w_L_target - robot.w_L, -max_w_dot * dt, max_w_dot * dt)
+    w_R_new = robot.w_R + np.clip(w_R_target - robot.w_R, -max_w_dot * dt, max_w_dot * dt)
+    
+    # Most számoljuk a kinematikát a KORLÁTOZOTT sebességgel
+    v, w = get_robot_kinematics(w_L_new, w_R_new, config)
+    
+    # Pozíció frissítés (ugyanaz, mint előbb)
+    theta_0 = robot.irany
+    
+    if(abs(w) > 1e-6):  # kis küszöb a nullához
+        robot.x += (v/w) * (math.sin(theta_0 + w*dt) - math.sin(theta_0))
+        robot.y += - (v/w) * (math.cos(theta_0 + w*dt) - math.cos(theta_0))
+    else:
+        robot.x += v * math.cos(theta_0) * dt
+        robot.y += v * math.sin(theta_0) * dt
+    
+    robot.irany += w * dt
+    robot.v = v
+    robot.w = w
+    robot.w_L = w_L_new
+    robot.w_R = w_R_new
+    
+    return np.array([robot.x, robot.y, robot.irany, robot.v, robot.w, robot.w_L, robot.w_R])
 
 """        
 Összes választható v,w pár kiszámolása kerekekből számítva
