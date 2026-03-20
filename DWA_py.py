@@ -165,7 +165,7 @@ class robotconfig:
         #G(v,w)= Alfa*heading(v,w)+Beta*dist(v,w)+Gamma*vel(v,w)
         robot.Alfa = 3  #célra tarás súlya  2
         robot.Beta = 3 # Akadály kerülés súlya  2
-        robot.Gamma = 4 #Sebesség súlya 5
+        robot.Gamma = 7 #Sebesség súlya 5
        
 """
 Robot jelenlegi állapotának eltárolása
@@ -554,7 +554,7 @@ def start_sweep():
 # --- INNEN TUDSZ VÁLTANI ---
 if __name__ == "__main__":
     # 1. SWEEP MÓD (táblázat):
-    start_sweep()
+    #start_sweep()
 
     # 2. EREDETI MÓD (grafika) - Ha ezt akarod, vedd ki a '#' jelet alóla:
-    # start_original_simulation()
+    start_original_simulation()
