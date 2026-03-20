@@ -3,6 +3,8 @@ import math                         # matematikai műveletekre pl.:pi
 
 import numpy as np      #gyorsabb számolás miatt --> ez C-ben írodott
 
+import pandas as pd
+import time
 """
 get_robot_kinematics : a kerékadatokból v,w párokat számol --> differenciális meghajtású robot elmélete
 """
@@ -327,6 +329,10 @@ def optimisation(robotconfig, state, goal, obstacle_list):
 szimulációs rész
 """
 def plot_all_trajectories(state, config, all_pairs, best_pair, goal, obstacles):
+    # Ha sweep módban vagyunk, ne csináljon semmit
+    if not plt.get_fignums(): 
+        return
+    
     plt.clf()
     ax = plt.gca()
     
@@ -402,10 +408,10 @@ def plot_all_trajectories(state, config, all_pairs, best_pair, goal, obstacles):
     plt.title(f"DWA Szimuláció - v: {state.v:.2f} m/s")
     plt.draw()
     plt.pause(0.01)
+    
 
-# --- FŐ PROGRAMFUTTATÁS ---
-
-if __name__ == "__main__":
+def start_original_simulation():
+    """Ez a grafikus szimuláció, függvénybe zárva."""
     conf = robotconfig()
     state = robotstate(x=0, y=0, irany=0, w_L=0, w_R=0)
     goal = Goal(x=7.0, y=5.0)
@@ -413,36 +419,142 @@ if __name__ == "__main__":
     plt.ion()
     plt.figure(figsize=(10, 8))
 
-    for step in range(1000): # Hosszabb futás a várakozás miatt
-        # 1. Akadályok mozgatása
+    for step in range(1000):
         for obs in obstacle_list:
             obs.move(conf.dt)
 
-        # 2. Optimalizáció
         best, all_pairs = optimisation(conf, state, goal, obstacle_list)
         
-        # 3. Megjelenítés
-        # Fő ciklusban:
-        if step % 3 == 0:  # Minden 3. lépésben frissíts
+        if step % 3 == 0:
             plot_all_trajectories(state, conf, all_pairs, best, goal, obstacle_list)
-        else:
-            # Csak a mozgást számold, de ne rajzolj
-            pass
         
-        # 4. Mozgatási logika + Várakozás
         if best:
-            # Van út -> megyünk tovább
             update(state, conf, best[2], best[3], conf.dt)
         else:
-            # NINCS ÚT -> Várakozás (kerekek megállítása)
-            # Frissítjük az állapotot v=0-val, hogy a szimuláció ne álljon le
             update(state, conf, 0, 0, conf.dt)
             print(f"Lépés {step}: Akadály blokkol, várakozás...")
             
-        # 5. Célba érés
         if math.hypot(state.x - goal.x, state.y - goal.y) < goal.tolerance:
             print("Célba ért!")
             break
 
     plt.ioff()
     plt.show()
+    
+##################xTÁBLÁZATOS############################
+
+def run_single_test(a, b, g):
+    """
+    Részletes szimulációs futás adathalászathoz.
+    """
+    conf = robotconfig()
+    conf.Alfa = a
+    conf.Beta = b
+    conf.Gamma = g
+    
+    state = robotstate(x=0, y=0, irany=0, w_L=0, w_R=0)
+    goal = Goal(x=7.0, y=5.0)
+    
+    # Frissített akadálylista a standard teszthez
+    current_obs_list = [
+        Obstacle(1.5, 1.0, radius=0.4), Obstacle(2.5, 1.2, radius=0.4),
+        Obstacle(3.5, 0.8, radius=0.4), Obstacle(2.0, 4.0, radius=0.4),
+        Obstacle(3.0, 4.2, radius=0.4), Obstacle(4.0, 3.8, radius=0.4),
+        Obstacle(5.0, 2.5, radius=0.6),
+        Obstacle(2.5, -1.0, radius=0.3, vx=0.0, vy=0.3),
+        Obstacle(5.0, 6.0, radius=0.25, vx=0.0, vy=-0.5),
+        Obstacle(3.5, 2.8, radius=0.2, vx=0.6, vy=0.0)
+    ]
+
+    min_dist = float('inf')
+    collision = False
+    total_v = 0.0
+    step_count = 0
+    max_steps = 600 
+
+    for step in range(max_steps):
+        for obs in current_obs_list: obs.move(conf.dt)
+
+        for obs in current_obs_list:
+            d = math.hypot(state.x - obs.x, state.y - obs.y) - (conf.rob_radius + obs.radius)
+            if d < min_dist: min_dist = d
+            if d <= 0:
+                collision = True
+                break
+        if collision: break
+
+        best, _ = optimisation(conf, state, goal, current_obs_list)
+        
+        if best:
+            update(state, conf, best[2], best[3], conf.dt)
+        else:
+            update(state, conf, 0, 0, conf.dt)
+            
+        total_v += state.v
+        step_count = step
+        
+        if math.hypot(state.x - goal.x, state.y - goal.y) < goal.tolerance:
+            avg_v = total_v / (step_count + 1)
+            return [a, b, g, "SIKER", False, round(min_dist, 3), step_count, round(avg_v, 3)]
+
+    avg_v = total_v / (step_count + 1) if step_count > 0 else 0
+    eredmeny = "ÜTKÖZÉS" if collision else "TIMEOUT"
+    return [a, b, g, eredmeny, collision, round(min_dist, 3), step_count, round(avg_v, 3)]
+
+def start_sweep():
+    """
+    Paraméter sweep 0-tól 10-ig minden egész értékre.
+    Összesen 11 * 11 * 11 = 1331 futtatás.
+    """
+    import numpy as np
+    sweep_results = []
+    
+    # Tartomány definiálása (0, 1, 2 ... 10)
+    vals = np.arange(0, 11, 1) 
+    total_runs = len(vals)**3
+    
+    print(f"--- RÉSZLETES SWEEP INDÍTÁSA ---")
+    print(f"Tartomány: 0-10 | Kombinációk: {total_runs}")
+    print("Ez eltarthat egy ideig, kérlek várj...")
+    
+    start_time = time.time()
+    count = 0
+
+    for a in vals:
+        for b in vals:
+            for g in vals:
+                res = run_single_test(a, b, g)
+                sweep_results.append(res)
+                count += 1
+                
+                # Haladási napló minden 50. futás után
+                if count % 50 == 0:
+                    percent = round((count / total_runs) * 100, 1)
+                    print(f"Haladás: {percent}% ({count}/{total_runs})")
+
+    # Táblázat összeállítása
+    columns = ["Alpha", "Beta", "Gamma", "Eredmény", "Ütközés", "Min_Távolság", "Lépésszám", "Átlag_Sebesség"]
+    df = pd.DataFrame(sweep_results, columns=columns)
+    
+    # Fájl mentése (letölthető CSV)
+    filename = "dwa_sweep_eredmenyek_10.csv"
+    df.to_csv(filename, index=False)
+    
+    total_duration = round((time.time() - start_time) / 60, 2)
+    print(f"\n--- SWEEP KÉSZ ---")
+    print(f"Futási idő: {total_duration} perc")
+    print(f"Fájl elmentve: {filename}")
+    
+    # Megmutatjuk a legjobb 10 sikeres futamot sebesség szerint rendezve
+    print("\nLegjobb 10 konfiguráció (Sikeres, leggyorsabb szerint):")
+    success_df = df[df["Eredmény"] == "SIKER"].sort_values(by="Lépésszám", ascending=True)
+    print(success_df.head(10).to_string(index=False))
+
+
+# --- INNEN TUDSZ VÁLTANI ---
+if __name__ == "__main__":
+    # 1. SWEEP MÓD (táblázat):
+    start_sweep()
+
+    # 2. EREDETI MÓD (grafika) - Ha ezt akarod, vedd ki a '#' jelet alóla:
+    # start_original_simulation()
