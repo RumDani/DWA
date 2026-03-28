@@ -265,12 +265,13 @@ def safepairs (robotconfig, state, obstacle_list):
 
 ############# optimalizáció #####################
 def optimisation(robotconfig, state, goal, obstacle_list):
-    # 1. Biztonságos sebességpárok lekérése (Dinamikus ablak + Ütközésvizsgálat)
+    # 1. Biztonságos sebességpárok lekérése
     safe_list = safepairs(robotconfig, state, obstacle_list)
     
-    # Ha nincs biztonságos út, vészfékezés
+    # Ha nincs biztonságos út (ÜRES A LISTA -> DEADLOCK)
     if not safe_list:
-        return [0.0, 0.0, 0.0, 0.0], []
+        # Visszaadunk egy speciális jelzést (None), hogy a főciklus tudja: Recovery kell
+        return None, []
 
     best_score = -float('inf')
     best_pair = None
@@ -411,7 +412,6 @@ def plot_all_trajectories(state, config, all_pairs, best_pair, goal, obstacles):
     
 
 def start_original_simulation():
-    """Ez a grafikus szimuláció, függvénybe zárva."""
     conf = robotconfig()
     state = robotstate(x=0, y=0, irany=0, w_L=0, w_R=0)
     goal = Goal(x=7.0, y=5.0)
@@ -419,21 +419,34 @@ def start_original_simulation():
     plt.ion()
     plt.figure(figsize=(10, 8))
 
-    for step in range(1000):
+    # Állapotjelző a deadlockhoz
+    is_recovering = False
+
+    for step in range(1200): # Kicsit több lépés, mert a forgás idő
         for obs in obstacle_list:
             obs.move(conf.dt)
 
         best, all_pairs = optimisation(conf, state, goal, obstacle_list)
         
-        if step % 3 == 0:
-            plot_all_trajectories(state, conf, all_pairs, best, goal, obstacle_list)
-        
-        if best:
-            update(state, conf, best[2], best[3], conf.dt)
-        else:
-            update(state, conf, 0, 0, conf.dt)
-            print(f"Lépés {step}: Akadály blokkol, várakozás...")
+        # --- DEADLOCK KEZELÉS ---
+        if best is None:
+            is_recovering = True
+            # Forgás egy helyben: ellentétes irányú keréksebességek
+            # A w_kerek_max felével forgunk, hogy biztonságos legyen
+            recovery_w_L = -conf.w_kerek_max * 0.3
+            recovery_w_R = conf.w_kerek_max * 0.3
             
+            update(state, conf, recovery_w_L, recovery_w_R, conf.dt)
+            print(f"Lépés {step}: DEADLOCK! Helyben forgás...")
+        else:
+            is_recovering = False
+            update(state, conf, best[2], best[3], conf.dt)
+
+        # Megjelenítés
+        if step % 3 == 0:
+            # Ha recovery van, üres listát adunk a rajzolónak
+            plot_all_trajectories(state, conf, all_pairs if best else [], best, goal, obstacle_list)
+        
         if math.hypot(state.x - goal.x, state.y - goal.y) < goal.tolerance:
             print("Célba ért!")
             break
