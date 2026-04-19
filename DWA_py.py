@@ -89,7 +89,7 @@ def get_dist_on_trajectory(state, config, w_L, w_R, obstacle_list):
     v_actual, _ = get_robot_kinematics(w_L, w_R, config)
     
     # --- SZENZOR PARAMÉTEREK ---
-    max_sensor_dist = 3.0  # 3 méterig lát el a Lidar
+    max_sensor_dist = 1.5  # 1.5 méter előtt lát el a Lidar
     fov_angle = math.radians(180) # 180 fokos látószög elöl
     
     for t in np.arange(0, config.predict_time, config.dt):
@@ -158,7 +158,7 @@ class robotconfig:
         #robot-alakja--> legyen kör az egyszerűség kedvéért
         robot.rob_radius = robot.b + 0.02 #[m]
         
-        robot.safety_margin = 0.15
+        robot.safety_margin = 0.3
        
         ########Optimalizáció###########
        
@@ -453,6 +453,61 @@ def start_original_simulation():
 
     plt.ioff()
     plt.show()
+
+
+def start_tube_deadlock_simulation():
+    conf = robotconfig()
+    # Csorészlet
+    conf.safety_margin = 0.0
+    
+    state = robotstate(x=1.5, y=2.2, irany=0, w_L=0, w_R=0)
+    goal = Goal(x=7.0, y=2.2)
+
+    # Nagyon szűk cső: 0.25 m magas (robot 0.1 m), blocker-ek 0.25 m sugarúak (szinte kitöltik)
+    lower_wall = [Obstacle(x, 2.03, radius=0.06) for x in np.arange(0.5, 7.1, 0.25)]
+    upper_wall = [Obstacle(x, 2.36, radius=0.06) for x in np.arange(0.5, 7.1, 0.25)]
+
+    # Elöl és hátul blocker: robot teljesen körülzárva, 0.25 m sugarúak
+    front_blocker = Obstacle(2.0, 2.2, radius=0.25, vx=0.03, vy=0.0)  # Elöl, mozog előre
+    rear_blocker = Obstacle(1.1, 2.2, radius=0.25, vx=0.0, vy=0.0)     # Hátul, messze a robottól
+
+    deadlock_exit_obstacles = lower_wall + upper_wall + [front_blocker, rear_blocker]
+
+    plt.ion()
+    plt.figure(figsize=(10, 8))
+
+    is_deadlocked = False
+    for step in range(1200):
+        for obs in deadlock_exit_obstacles:
+            obs.move(conf.dt)
+
+        best, all_pairs = optimisation(conf, state, goal, deadlock_exit_obstacles)
+
+        if best is None:
+            is_deadlocked = True
+            # Ha nem talál haladást, helyben forgás
+            recovery_w_L = -conf.w_kerek_max * 0.3
+            recovery_w_R = conf.w_kerek_max * 0.3
+            update(state, conf, recovery_w_L, recovery_w_R, conf.dt)
+            if step % 20 == 0:
+                print(f"Lépés {step}: DEADLOCK - helyben forgás, elöl blocker: x={front_blocker.x:.2f}")
+        else:
+            if is_deadlocked:
+                print(f"Lépés {step}: Blocker nyitotta az utat! Kilépés x={state.x:.2f}")
+                is_deadlocked = False
+            update(state, conf, best[2], best[3], conf.dt)
+            if step % 20 == 0:
+                print(f"Lépés {step}: Haladás - robot x={state.x:.2f}, elöl blocker x={front_blocker.x:.2f}")
+
+        if step % 3 == 0:
+            plot_all_trajectories(state, conf, all_pairs if best else [], best, goal, deadlock_exit_obstacles)
+
+        if math.hypot(state.x - goal.x, state.y - goal.y) < goal.tolerance:
+            print("✓ Kijutott a csőből és célba ért")
+            break
+
+    plt.ioff()
+    plt.show()
     
 ##################xTÁBLÁZATOS############################
 
@@ -570,4 +625,7 @@ if __name__ == "__main__":
     #start_sweep()
 
     # 2. EREDETI MÓD (grafika) - Ha ezt akarod, vedd ki a '#' jelet alóla:
-    start_original_simulation()
+    #start_original_simulation()
+
+    # 3. CSŐ-REND SZIMULÁCIÓ: deadlock, majd mozgó akadály után kimenet
+    start_tube_deadlock_simulation()
